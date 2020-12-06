@@ -1,0 +1,1044 @@
+---
+title: "Frameworks to Analyze Product Retention"
+author: "Karthik Sivaram"
+date: "15th August, 2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+##  Recommendations
+
+  In this section, I crystallise insights from all the analytical sections below to provide a set of recommendations on how Monzo should measure, monitor, and potentially increase retention.  
+  
+  *  I recommend using three different metric families based on key user actions on the platform -- app opens and transactions -- to measure retention. Monitoring these three together will be prudent over picking just one. From the data given to me, retention of users on a weekly and monthly basis seems to be strong and trending upwards. While the most recent three weeks in the data shows a drop, it seems that it is an acute trend and not long term. Nonetheless, through constant monitoring of these metrics over longer period, it should be possible to know for sure. Further, there seems to be a plateauing in the growth of newly acquired users. As a platform in growth phase we would ideally want this to be increasing not flattening. Therefore it is worth assessing the customer acquisition strategy.
+  
+  *  Cohort analyses of users based on age shows that users 35 and above are being retained poorly relative to younger cohorts. While there are some qualifications to this conclusion that I discuss below, it is nonetheless worth flagging. These are potential high value users with greater disposable income and may prove to be important for Monzo in the future as a source of deposits and consumers of high value features. Cohort analysis on the basis of acquisition month suggests that users acquired in earlier months are retained better. Once again this needs to be qualified, which I do in the section discussing this part. Nonetheless, at the minimum it calls for further analyses based on acquisition channel and other cohort types to understand what is going on since the data within the monthly cohorts show significant skew.  
+  
+  *  Association between user segmentation data and retention metrics is on the whole inconclusive in showing if specific user segments are unequivocally retained better. This is partly due to data quality issues and small sample sizes. However, regression analysis does suggest that there is some positive association of Android pay activation and a user uploading a profile photo to an increase in retention performance. There are important caveats to this conclusion, which I detail in the appropriate section. Nonetheless, we can conclude that this is worth further investigation to understand the strength of this association. _Prima facie_ there is good reason to believe in the null hypotheses that these features may be positively associated with increased user retention. However, this should be rigorously tested through experiments before incorporated in to product strategy.
+
+
+##  Introduction
+
+In this notebook, I attempt to answer three importantquestions regarding retention of users on a platform like Monzo.
+
+##  Question 1: How would you define user retention for a business like ours and why?
+
+  For a business like Monzo, user retention can be analyzed through metric families derived from key actions on the platform aggregated over different time scales. I illustrate by considering two key actions -- opening the Monzo app and completing a transaction. From these I derive 3 metric families that I aggregate daily, weekly, and monthly. 
+
+  The first two look at user retention through 5 metrics that I define below:  
+  
+  **1.  Active Users** -- This is the number of users who performed that action on a given unit of time -- daily, weekly, or monthly.  
+  **2.  Retained Users** -- This is the number of users who performed that action on two consecutive units of time.   
+  **3.  Churned Users** -- This is the number of users who performed that action on the previous time unit, but not the next one.  
+  **4.  Resurrected Users** -- This is the number of users who performed that action on the given unit of time but did not do so on the previous one and this was not their time unit of first activity.    
+  5.  **First Active Users** -- This is the number of users who performed that action for the very first time on that particular time unit.  
+  
+  These can be understood as a decomposition of the total user base using the following equations:  
+  
+  $Total\;Users = Active\; Users + Churned\; Users$  
+  $Active\; Users = Retained\; Users + Resurrected\; Users + First\; Active\; Users$  
+  
+  This decomposition allows us to track user retention on the platform for key actions and identify behavior of the user base. I shall illustrate this through examples in the sections below.  
+  
+###  1. App Opens
+
+####  Daily  
+  In this section, I illustrate user retention metrics discussed above for unique users who opened the app on a given day. The plot below shows the actual number as well as a trend-line for all 5 metrics discussed above. The calculation is done with granularity of a single day. 
+
+```{r setup and daily app opens, warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+######################################################################################################################################################################################################
+
+######################################################################################################################################################################################################
+##Library
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+library(scales)
+library(ggplotAssist)
+library(purrr)
+library(smotefamily)
+library(tidymodels)
+library(glmnet)
+library(doParallel)
+library(glmnetUtils)
+library(reshape2)
+library(sqldf)
+library(lubridate)
+library(forcats)
+
+######################################################################################################################################################################################################
+##User Defined Functions
+
+#to_Monday -- converts a date to the preceding monday of the week; useful to index to the beginning of a week
+
+toMonday <- function(x){
+  
+   return( as.Date(x - (as.integer(as.POSIXlt(x)$wday)  ) + 1))
+}
+
+indexOutliers <- function(x){
+  return(which(abs(x) > abs(mean(x) + 3*sd(x))))
+  
+}
+
+######################################################################################################################################################################################################
+#Retention Metrics
+######################################################################################################################################################################################################
+######################################################################################################################################################################################################
+#App opens
+######################################################################################################################################################################################################
+#Daily 
+
+
+##Exploring the data set
+
+daily_app_opens <- read.csv("app_opens_daily.csv")
+
+##Formatting data
+
+##Changing to date format
+
+daily_app_opens$day <- as.Date(daily_app_opens$day)
+
+##There are many rows with sparse data, I remove all rows before there were 10 daily active users
+
+select_daily_app_opens <- daily_app_opens %>% dplyr::filter(m_daily_active_users > 10)
+
+##PLotting User activity 
+
+#Vector of retention metrics
+
+ret_metrics <- c("Active Users", "Retained Users", "Churned Users", "Ressurected Users", "First Active Users")
+
+##Reshaping Data Frame for plotting
+melt_daily_app_opens <- melt(select_daily_app_opens, id.vars = 'day')
+
+#Line plot for Retention metrics with Daily Frequency
+ggplot(melt_daily_app_opens) + 
+  geom_line(aes(x = day, y =value, group = variable, colour = variable )) +
+  geom_smooth(aes(x = day, y =value, group = variable, colour = variable )) +
+  scale_x_date(name = "Date", breaks = seq.Date(min(melt_daily_app_opens$day),max(melt_daily_app_opens$day), 7 ), date_labels = "%d\n%b") +
+  scale_y_continuous(name = "# of users", breaks = seq(0, 13000, 1000)) +
+  scale_colour_discrete(name = "Legend", labels = ret_metrics)+
+  ggtitle("Daily User Retention: App opens")
+
+
+
+
+```
+`
+  From the plot above we can observe the following:  
+  
+  *  Active users who opened the app at least once on a given day seems to be growing steadily as indicated by the trend line. There seems to be prominent spikes during the first week of the month. This suggests that many users open the app to pay rent, utilities, or settle accounts with friends/room mates. The spikes are also getting larger with time indicating that newly acquired users are also opening the app with the same frequency and probably for the same reasons.   
+  
+  *  Resurrected users seem to be biggest contributor to active users followed by retained users and first active users. This indicates that very few users open the app on consecutive days. Further, active user growth is not merely coming from newly active users, rather users returning to the platform after being inactive for at least a day. This is a good sign that users are actually using the platform, just not daily. This is to be expected since the Monzo app is not meant to be used daily like social media apps.  
+  
+  *  This plot is useful to monitor acute issues with the platform like outages. We can see that there is a somewhat prominent dip in active users below the trend-line in the week beginning on the 23rd of May and the 6th of June. While the dip is not prominent enough to suggest a platform wide issue, it would be nonetheless prudent to investigate the cause of the dip.
+  
+####  Weekly
+  Below I plot these 5 metrics with a time granularity of a week. That is for active users are the total number of unique users who opened the app at least once in a week, retained users are those who did so on two consecutive weeks and so on.
+
+```{r weekly app opens, warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+##Weekly
+
+
+
+weekly_app_opens <- read.csv("weekly_app_opens.csv")
+
+weekly_app_opens$week <- as.Date(weekly_app_opens$week)
+
+## Removing the last row since the week was not complete
+
+weekly_app_opens <- weekly_app_opens %>% dplyr::filter( week < '2018-06-11')
+
+
+##Plotting Weekly app opens
+
+melt_weekly_app_opens <- melt(weekly_app_opens, id.vars = 'week')
+
+ggplot(melt_weekly_app_opens) + 
+  geom_line(aes(x = week, y =value, group = variable, colour = variable )) + 
+  geom_smooth(aes(x = week, y =value, group = variable, colour = variable )) +
+  scale_x_date(name = "Week", breaks = seq.Date(min(melt_weekly_app_opens$week),max(melt_weekly_app_opens$week), 7 ), date_labels = "%d\n%b") +
+  scale_y_continuous(name = "# of users who opened the app atleast once") +
+  scale_colour_discrete(name = "Legend", labels = ret_metrics)+
+  ggtitle("Weekly User Retention: App opens")
+
+```
+`
+
+  From the plot above we can observe the following:  
+  
+  *  Weekly active users is much higher in number than daily active users and the actual line is smoother, almost hugging the trend line. This suggests that most users, certainly more than those opening the app daily, open the app at least once a week. We can still observe small spikes in app usage for the first week of every month, which adds weight to my  hypothesis in the last section on why.  
+  
+  *  Retained users seems to be the largest contributor followed by resurrected users and first active users. This is unlike the previous plot, where daily retained users contributed far less. This further suggests that most users open the app at least once a week and the platform is doing a good job of bringing them back; hence the lower number of churned users compared to the daily plot. The plateauing of first active users suggest that growth from new users is steady week on week. This may indicate an issue with the user acquisition strategy since we would ideally expect to be acquiring more users week on week through various channels.
+  
+  *  This plot is a good candidate to investigate chronic issues with the platform. From the plot we can observe s dip below the trend-line from the 30th of April till 28th May. While this maybe just recursion to the mean after the expected spike in the beginning of May, it is nonetheless prudent to ensure nothing is amiss.  
+  
+#### Monthly
+  In this section, I use a time granularity of 1 month. Therefore monthly active users are the number of unique users who opened the app at least once in a given month.
+
+
+```{r monthly app opens, warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+
+##Monthly 
+
+
+
+monthly_app_opens <- read.csv("monthly_app_opens.csv")
+
+monthly_app_opens$month <- as.Date(monthly_app_opens$month)
+
+##Removing the month of June since we have only data for a third of the month
+
+monthly_app_opens <- monthly_app_opens %>% dplyr::filter( month < '2018-06-01')
+
+##Melting and plotting
+melt_monthly_app_opens <- melt(monthly_app_opens, id.vars = 'month')
+
+ggplot(melt_monthly_app_opens) + 
+  geom_line(aes(x = month, y =value, group = variable, colour = variable )) +
+  geom_smooth(aes(x = month, y =value, group = variable, colour = variable )) +
+  scale_x_date(name = "Month", date_labels = "%b\n%y", breaks = seq.Date(min(melt_monthly_app_opens$month),max(melt_monthly_app_opens$month), by = "month" )) +
+  scale_y_continuous(name = "# of users") +
+  scale_colour_discrete(name = "Legend", labels = ret_metrics)+
+  ggtitle("Monthly User Retention")
+
+
+```
+
+  From this plot we can observe the following:  
+  
+  *  Monthly active users is higher than weekly active users, as we would expect, and the actual line is virtually indistinguishable from the trend-line. This suggests that there is very little variation month to month away from the trend line and growth in app opens is following a linear trend.  
+  
+  *  Retained users make the largest contribution to active users followed by first active users and then resurrected users. This adds weights to our earlier conclusion that the platform is doing a good job bringing back customers to the app. Just as stated earlier the plateauing of first active users suggests that the user acquisition strategy may not be working as well as we would like. The increase in churned users over time may also suggest that the newly acquired users may not be opening the app as much.  
+  
+  *  This plot can be useful to monitor longer term trends in app usage. Given that the data is not very noisy, any fluctuation from the trend line, if unexpected, suggests something has materially changed and a point of further inquiry.
+  
+###  2. Transacting Users
+
+  In this section, I propose measuring user retention using transaction data. 
+
+####  Daily  
+
+In this section, I illustrate user retention metrics for unique users who completed at least one transaction in a day. The plot below shows the actual number as well as a trend-line for all 5 metrics. The calculation is done with granularity of a single day. 
+
+```{r daily transacting users, warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+
+
+##Daily 
+
+
+daily_t_users <- read.csv("daily_transacting_users.csv")
+
+###Converting date column to date format and filtering to rows after 2017-11-08 (first day with more than 1- app opens)
+
+daily_t_users$day <- as.Date(daily_t_users$day)
+
+daily_t_users <- daily_t_users %>% dplyr::filter(day >= as.Date('2017-11-08'))
+
+##Melting and plotting
+
+##Reshaping Data Frame for plotting
+melt_daily_t_users <- melt(daily_t_users, id.vars = 'day')
+
+#Line plot for Retention metrics with Daily Frequency
+ggplot(melt_daily_t_users) + 
+  geom_line(aes(x = day, y =value, group = variable, colour = variable )) + 
+  geom_smooth(aes(x = day, y =value, group = variable, colour = variable )) +
+  scale_x_date(name = "Date", breaks = seq.Date(min(melt_daily_t_users$day),max(melt_daily_t_users$day), 7 ), date_labels = "%d\n%b") +
+  scale_y_continuous(name = "# of transacting users", breaks = seq(0, 50000, 1000)) +
+  scale_colour_discrete(name = "Legend", labels = ret_metrics)+
+  ggtitle("Daily User Retention: Transacting Users")
+
+```
+
+
+From the plot above we can observe the following:  
+
+*  Daily transacting users are a lot more than daily app opens. This makes sense since completing transactions captures better why people sign up to Monzo. So daily transacting users is perhaps a better way to understand user retention. We can also observe a consistent weekly seasonality with transactions peaking from Thursday to Saturday and then bottoming out on Sundays. This suggests that users primarily use Monzo to pay at pubs, restaurants or other leisure activities over the weekend.  
+
+*  Retained users make the largest contribution to active users, which differs from app opens. This furthers adds weight to the argument that this is a better metric to measure user retention for a business like Monzo.
+
+*  Growth in first active users is very little to non-existent. This maybe a cause for concern and a reason to examine the user acquisition strategy carefully. 
+
+####  Weekly and Monthly
+
+  In this section I show transacting user retention aggregated on a weekly and monthly basis. I group these together since the inference from these plots are pretty much the same. 
+
+
+```{r monthly and weekly transacting users, warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+
+##Weekly
+
+
+weekly_t_users <- read_csv("weekly_transacting_users.csv")
+
+##Converting to date and removing last week of june in the data
+
+weekly_t_users$week <- as.Date(weekly_t_users$week)
+
+## Removing the last row since the week was not complete
+
+weekly_t_users <- weekly_t_users %>% dplyr::filter( week < '2018-06-11')
+
+
+##Plotting Weekly app opens
+
+melt_weekly_t_users <- melt(weekly_t_users, id.vars = 'week')
+
+ggplot(melt_weekly_t_users) + 
+  geom_line(aes(x = week, y =value, group = variable, colour = variable )) + 
+  geom_smooth(aes(x = week, y =value, group = variable, colour = variable )) +
+  scale_x_date(name = "Week", breaks = seq.Date(min(melt_weekly_t_users$week),max(melt_weekly_t_users$week), 7), date_labels = "%d\n%b") +
+  scale_y_continuous(name = "# of transacting users") +
+  scale_colour_discrete(name = "Legend", labels = ret_metrics)+
+  ggtitle("Weekly Transacting User Retention")
+
+##Confirms the trend from above
+
+##Monthly
+
+
+
+monthly_t_users <- read_csv("monthly_transacting_users.csv")
+
+###Converting to date and removing last month of june in the data
+
+monthly_t_users$month <- as.Date(monthly_t_users$month)
+
+###Removing the last row since the month was not complete
+
+monthly_t_users <- monthly_t_users %>% dplyr::filter( month < '2018-06-01')
+
+
+##Plotting monthly 
+
+melt_monthly_t_users <- melt(monthly_t_users, id.vars = 'month')
+
+ggplot(melt_monthly_t_users) + 
+  geom_line(aes(x = month, y =value, group = variable, colour = variable )) + 
+  geom_smooth(aes(x = month, y =value, group = variable, colour = variable )) +
+  scale_x_date(name = "Month", breaks = seq.Date(min(melt_monthly_t_users$month),max(melt_monthly_t_users$month), by= "month"), date_labels = "%b\n%Y") +
+  scale_y_continuous(name = "# of transacting users") +
+  scale_colour_discrete(name = "Legend", labels = ret_metrics)+
+  ggtitle("Monthly Transacting User Retention")
+
+
+```
+
+
+From these plots we can observe the following:  
+
+*  The trend for weekly and monthly transacting users is strongly upward and shows little variance; it more or less hugs the trend line. These plots confirm the inference from above that this is a good measure of user retention. Monzo users find value in the product primarily through completing transactions. These plots are the best way to monitor user retention; any deviation from the trend line should suggest some major change and worth investigating.  
+
+*  As observed in all the plots above the flat line for first active users should be something investigated. 
+
+###  3. Transaction Amount and Number of Transactions
+
+  In this section, I examine the transaction amount and number of transactions completed by users. As an aside, I also investigated the type of transactions -- credit and debit. Most transactions, in volume and total amount, are debit transactions (I do not show the plots since it's not relevant to the question). This suggests that users primarily use Monzo for purchases of products and services and less as their salary account. While this is out of scope of this analysis, it is worth flagging since this might suggest a way to increase user engagement with the platform. In the rest of the notebook I only look at the absolute value of transactions and do not differentiate between credit and debit.  
+  
+  In order to understand user retention, I look at the change in average transaction value and number of transaction per transacting user. I only consider weekly and monthly time units since it is evident from the above sections that these illustrate user patterns better.
+  
+
+```{r monthly and weekly transaction value and num transactions , warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+
+##Looking at transaction value and num_transactions per user, weekly and monthly
+
+###Weekly
+
+
+weekly_t_per_user <- read_csv("weekly_t_value_per_user.csv")
+
+##Removing last week of June
+
+weekly_t_per_user <- weekly_t_per_user %>%  dplyr::filter(week < as.Date('2018-06-11'))
+
+melt(weekly_t_per_user, id.vars = 'week') %>% ggplot() + geom_line(aes(x = week, y =value, group = variable, colour = variable )) + geom_smooth(aes(x = week, y =value, group = variable, colour = variable )) +scale_x_date(name = "Week", breaks = seq.Date(min(weekly_t_per_user$week),max(weekly_t_per_user$week), 7 ), date_labels = "%d\n%b")+ scale_y_continuous(name = "Transaction Amount per user or Number of Transactions per user", breaks = seq(0,200,10)) +ggtitle("Weekly User Behavior: # Transactions and Amount per Transacting User") + scale_colour_discrete(name = "Legend", labels = c("Transactions per user", "Amount per User"))
+
+###Monthly 
+
+monthly_t_per_user <- read_csv("monthly_t_amount_per_user.csv")
+
+##Removing last month of June
+
+monthly_t_per_user <- monthly_t_per_user %>%  dplyr::filter(month < as.Date('2018-06-01'))
+
+melt(monthly_t_per_user, id.vars = 'month') %>% ggplot() + geom_line(aes(x = month, y =value, group = variable, colour = variable )) + geom_smooth(aes(x = month, y =value, group = variable, colour = variable )) +scale_x_date(name = "Month", breaks = seq.Date(min(monthly_t_per_user$month),max(monthly_t_per_user$month), by = 'month'), date_labels = "%b\n%y")+ scale_y_continuous(name = "Transaction Amount per user or Number of Transactions per user", breaks = seq(0,2000,100)) +ggtitle("Monthly User Behavior: # Transactions and Amount per Transacting User") + scale_colour_discrete(name = "Legend", labels = c("Transactions per user", "Amount per User"))
+
+```
+  
+  
+  From the plots above, we can observe that the average transaction amount and number of transactions per transacting user have increased significantly over time; monthly transaction amount has doubled. This indicates that users are finding increasing value in Monzo. This is also a sign that users are being retained better. A dip in this value would indicate otherwise and should be investigated.
+  
+#### Conclusion  
+
+  I have proposed three metric families and illustrated their utility in understanding user retention for a business like Monzo. It is tempting to rely on a single metric to measure something as critical as user retention, but I would caution against that. This is because once we pick one metric and various teams work to optimise that metric, as per Goodhart's Law, it stops being a good measure. It is with this in mind that I have proposed three metric families that capture different aspects of user behavior on Monzo. By monitoring all three metrics, we can be sure not to overly rely on any single one and potentially suffer the consequences of it becoming a bad measure for user retention.
+  
+###  Q2: How can we analyse retention with the smallest delay in time and as unskewed as possible, i.e. how can we identify an underperforming cohort as quickly as possible?
+
+  In the previous section, I proposed three different metric families that measure overall user behavior on the platform and are useful way to monitor user retention on the platform. However they can only indicate that there maybe a problem overall, but cannot diagnose where exactly the problem maybe. In this answer I propose a few different ways to constitute user cohorts and analyse their usage of Monzo. These cohorts will allow us to identify quickly and without much skew where the problem may rest.  
+  
+  I propose constituting cohorts of two different types -- 1.) Month of activation and 2.) Age of users. Ideally, I would have also liked to cohort users on the basis of their acquisition channel, but that data is not available. I analyze these cohorts by comparing their behavior for the first 24 weeks since activation. Since users were activated at different times and I have data for only 8 months, not all user cohorts will have stable values for the entire period. Nonetheless, this is meant to be illustrative of the method.
+  
+####  Month of Activation User Cohorts
+  In this section, I group users into cohorts based on their month of activation with the assumption that they may have been acquired through similar means and thus constitute a meaningful group. As mentioned earlier, I would have preferred to group them by the acquisition channel, but in the absence of that data this serves as a reasonable proxy. I will analyse the key actions -- number of transactions, transaction amount, and app opens. For each of these I look at % of users in the cohort that completed these actions every week, the mean as well as the median value so as to detect any skew within the cohort. I will only use time unit of 1 week since it was evident from previous analysis that this best represents how users prefer to perform these key actions.  
+  
+  First I begin by plotting the cohort sizes below. 
+
+```{r monthl of activation cohorts , warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+
+#Reading cohorted user data 
+
+cohorted_user_data <- read_csv("cohorted_user_data.csv", col_types = list(col_character(), col_double(), col_double(), col_double(), col_date(), col_date(), col_date(), col_double()))
+
+date_frame <- tibble(dates = seq.Date(as.Date('2017-11-01'),as.Date('2018-06-14'), 1 ))
+
+c_users <- cohorted_user_data %>% dplyr::select(user_id, cohort_num, activation_day)
+
+query <- ("SELECT *
+           FROM
+              c_users AS c
+              LEFT JOIN date_frame AS d
+                ON CAST(c.activation_day AS DATE) <= CAST(d.dates AS DATE)")
+
+##This dataframe contains every user on monzo and a column with a row for everyday day from their day of first activation to 14th june 2018
+
+cohorted_users_daily <- sqldf(query)
+
+######################################################################################################################################################################################################
+#Map for cohort_num 
+
+cohort_num_map <- tibble(cohort_num = 1:8,
+                     month = format(seq.Date(as.Date('2017-11-01'), as.Date('2018-06-01'), by = 'month'), "%B"))
+
+######################################################################################################################################################################################################
+##IMporting daily transaction data
+
+cohorted_users_daily_t <- read_csv("cohorted_users_daily_t.csv")
+
+##Creating a data frame for total transactions and total amount of transacations for every user
+
+users_t <- cohorted_users_daily_t %>% group_by(user_id) %>% summarise(m_t = sum(m_t, na.rm = T),
+                                                                      total_amount = sum(total_daily_amount, na.rm = T))
+
+#Joining with dataframe with dates for everyday
+
+join_cohorted_users_daily_t <- left_join(cohorted_users_daily, cohorted_users_daily_t, by = c("cohort_num" = "cohort_num", 'user_id' = 'user_id', 'dates' = 'day'))
+
+#Rounding down dates to the beginning of the week (Monday)
+join_cohorted_users_daily_t <- join_cohorted_users_daily_t %>% mutate(week = toMonday(dates))
+
+##Aggreating by week
+weekly_agg_cohorted_users_t <- join_cohorted_users_daily_t %>% 
+                              group_by(user_id, cohort_num, activation_day, week) %>%
+                              summarise(m_t = sum(m_t, na.rm = T),
+                                        total_daily_amount = sum(total_daily_amount, na.rm = T)) %>% 
+                              group_by(user_id) %>% 
+                              mutate(week_since_act = dense_rank(week))
+                                                                                                                      
+
+######################################################################################################################################################################################################
+##Looking at Cohort Sizes                                                                                                                      
+
+weekly_agg_cohorted_users_t %>% 
+  group_by(cohort_num) %>% 
+  summarise(num_users = length(unique(user_id))) %>% ggplot() + geom_col(aes(x = as.factor(cohort_num), y = num_users, fill =as.factor(cohort_num) )) +scale_x_discrete(name = "Cohort Month", labels = c(cohort_num_map$month)) + scale_fill_discrete(name = "Legend", labels = c(cohort_num_map$month)) + scale_y_continuous(name = "# of Users", labels = seq(0,20000,1000), breaks = seq(0,20000,1000)) + ggtitle("User Cohorts: Based on Month of Activation")
+
+
+
+
+```
+  
+
+From the plot below, we can say that except for the November, December, and June cohorts, all the others are of comparable sizes. The exceptions should be kept in mind for when we notice comparatively higher variance due to the smaller cohort sizes. Further, I exclude the June cohort from analysis since they have not had enough time on the platform (less than 2 weeks). 
+
+#### Monthly Cohorts and Transactions
+
+  In the plots below I examine the transaction behavior of these cohorts. I produce 5 plots that look at 1.) the % of user in cohort who completed a transaction, 2.) the average number of transactions, 3.) the number of transactions completed by the median user, 4.) average transaction amount, and 5.) transaction amount of median user. 
+
+
+```{r monthl of activation cohorts and transactions , warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+
+######################################################################################################################################################################################################
+##Looking at weekly performance of cohorts in terms of number of transactions
+
+cohorted_t_agg <- weekly_agg_cohorted_users_t %>% 
+                  group_by(cohort_num) %>% mutate(m_users_cohort = length(unique(user_id))) %>%  
+                  group_by(cohort_num,  week_since_act ) %>% 
+                  summarise(pct_t_users = n_distinct(ifelse(m_t>0, user_id, NA), na.rm = T)*100/m_users_cohort,
+                            mean_m_t    = mean(m_t, na.rm = T),
+                            median_m_t  = median(m_t, na.rm = T),
+                            mean_amount = mean(total_daily_amount, na.rm = T),
+                            median_amount = median(total_daily_amount)
+                  ) %>% distinct()
+                                                                                                                                                                                                     
+
+
+#Plotting Cohort Performance in transacting users
+
+cohorted_t_agg %>% select(cohort_num, week_since_act, pct_t_users) %>% group_by(cohort_num) %>% dplyr::filter( week_since_act < 25 & cohort_num<8 ) %>% ggplot() +geom_line(aes(x = week_since_act, y = pct_t_users, group = as.factor(cohort_num), colour = as.factor(cohort_num)))+ geom_point(aes(x = week_since_act, y = pct_t_users, group = as.factor(cohort_num), colour = as.factor(cohort_num))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,32,2)) + scale_y_continuous(name = "% of cohort", breaks = seq(0,60,5)) + scale_color_discrete(name = "Legend", labels = c(cohort_num_map$month[1:7])) +ggtitle("Monthly Cohorts: Transacting Users")
+
+#Plotting Cohort Performance average number of transactions
+
+cohorted_t_agg %>% select(cohort_num, week_since_act,mean_m_t) %>% group_by(cohort_num) %>% dplyr::filter( week_since_act < 25 & cohort_num<8 ) %>% ggplot() + geom_line(aes(x = week_since_act, y = mean_m_t, group = as.factor(cohort_num), colour = as.factor(cohort_num)))+geom_point(aes(x = week_since_act, y = mean_m_t, group = as.factor(cohort_num), colour = as.factor(cohort_num))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,32,2)) + scale_y_continuous(name = "# of Transactions per user") + scale_color_discrete(name = "Legend", labels = c(cohort_num_map$month[1:7])) +ggtitle("Monthly Cohorts: Mean # of Transactions per Users")
+
+#Plotting to median to check skew
+cohorted_t_agg %>% select(cohort_num, week_since_act,median_m_t) %>% group_by(cohort_num) %>% dplyr::filter( week_since_act < 25 & cohort_num<8 )  %>% ggplot() + geom_line(aes(x = week_since_act, y = median_m_t, group = as.factor(cohort_num), colour = as.factor(cohort_num)))+geom_point(aes(x = week_since_act, y = median_m_t, group = as.factor(cohort_num), colour = as.factor(cohort_num))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,32,2)) + scale_y_continuous(name = "# of Transactions per user") + scale_color_discrete(name = "Legend", labels = c(cohort_num_map$month[1:7])) +ggtitle("Monthly Cohorts: Transaction of Median User")
+
+##There is skew in the data since the median user of the cohort is transacting far fewer times than the average per cohort
+
+##PLotting Transaction amount
+#Mean
+
+cohorted_t_agg %>% select(cohort_num, week_since_act,mean_amount) %>% group_by(cohort_num) %>% dplyr::filter( week_since_act < 25 & cohort_num<8 )  %>% ggplot() + geom_line(aes(x = week_since_act, y = mean_amount, group = as.factor(cohort_num), colour = as.factor(cohort_num)))+geom_point(aes(x = week_since_act, y = mean_amount, group = as.factor(cohort_num), colour = as.factor(cohort_num))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,32,2)) + scale_y_continuous(name = "Mean Amount Transacted per User") + scale_color_discrete(name = "Legend", labels = c(cohort_num_map$month[1:7])) +ggtitle("Monthly Cohorts: Mean Amount Transacted per User")
+
+#Median
+
+cohorted_t_agg %>% select(cohort_num, week_since_act,median_amount) %>% group_by(cohort_num) %>% dplyr::filter( week_since_act < 25 & cohort_num<8 )  %>% ggplot() + geom_line(aes(x = week_since_act, y = median_amount, group = as.factor(cohort_num), colour = as.factor(cohort_num)))+geom_point(aes(x = week_since_act, y = median_amount, group = as.factor(cohort_num), colour = as.factor(cohort_num))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,32,2)) + scale_y_continuous(name = "Amount Transacted by Median User") + scale_color_discrete(name = "Legend", labels = c(cohort_num_map$month[1:7])) +ggtitle("Monthly Cohorts: Amount Transacated by Median User")
+
+```
+
+
+From these plots we can observe the following:  
+
+  *  The first thing that stands out is the prominent dip on all three plots for the last three weeks of each cohort, except the November and December ones. This is because the plot does not show the last three weeks for these two cohorts and, indeed, they also display a similar drop. This suggests a platform wide problem that is not specific to any cohort. This is a manifestation of an earlier trend I pointed out in the first section of this analysis. Investigating the cause of this drop is out of scope of this analysis.  
+  
+  * All cohorts seem to show comparable average transaction behavior. The initial rise for the first four weeks can be explained by the distribution of activation dates over the 4 weeks of the month. Thereafter cohort behavior seems more or less stable. Visually, it would seem that cohort performance decreases from older to newer cohorts (November can be excluded since it's a small cohort). However, the difference between them are not prominent enough to suggest some meaningful cause.  
+  
+  * The median values show much greater variation indicating significant skew within the cohorts. This furthers makes the case that we should analyse these on the basis of acquisition channels. This might help explain which cohorts perform better and, crucially, provide actionable insights; for example, we can invest less in those acquisition channels that lead  to these poorly performing users. This maybe also explained by differences in the demographic of users within the cohort, which I will explore in the succeeding sections.
+  
+####  Monthly Cohorts and App Opens
+
+In this section I analyse the app usage behavior of these cohorts using similar plots as above.
+
+
+```{r monthl of activation cohorts and app opens , warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+##Looking at App opens
+
+###Query link -- https://console.cloud.google.com/bigquery?sq=679566538587:67a095e2bcec4b9ea04f6cf46c8780fc
+
+##IMporting the data
+
+cohorted_users_daily_app_opens <- read_csv("cohorted_users_daily_app_opens.csv")
+
+##Creating a total app opens per user
+
+users_app_opens <- cohorted_users_daily_app_opens %>% group_by(user_id) %>% summarise(m_app_opens = sum(m_app_opens, na.rm = T))
+
+
+#Joining with dataframe with dates for everyday
+
+join_cohorted_users_daily_app_opens <- left_join(cohorted_users_daily, cohorted_users_daily_app_opens, by = c("cohort_num" = "cohort_num", 'user_id' = 'user_id', 'dates' = 'day'))
+
+#Rounding down dates to the beginning of the week (Monday)
+join_cohorted_users_daily_app_opens <- join_cohorted_users_daily_app_opens %>% mutate(week = toMonday(dates))
+
+##Aggreating by week
+
+weekly_agg_cohorted_users_app_opens <- join_cohorted_users_daily_app_opens %>% 
+                                        group_by(user_id, cohort_num, activation_day, week) %>% 
+                                        summarise(m_app_opens = sum(m_app_opens, na.rm = T))%>% 
+                                        group_by(user_id) %>% 
+                                        mutate(week_since_act = dense_rank(week))
+
+
+
+##Aggregating by Cohort and week since activation
+
+cohorted_app_opens_agg <- weekly_agg_cohorted_users_app_opens %>% group_by(cohort_num) %>% 
+  mutate(m_users_cohort = length(unique(user_id))) %>%  group_by(cohort_num,  week_since_act ) %>% 
+  summarise(pct_app_opens_users = n_distinct(ifelse(m_app_opens>0, user_id, NA), na.rm = T)*100/m_users_cohort,
+            mean_app_opens      = mean(m_app_opens, na.rm = T),
+            median_app_opens    = median(m_app_opens, na.rm = T)) %>% distinct()
+                                                                                                                            
+##Plotting pct_users who opened the app at least once
+
+cohorted_app_opens_agg %>% select(cohort_num, week_since_act, pct_app_opens_users) %>% group_by(cohort_num) %>%  dplyr::filter( week_since_act < 25 & cohort_num<8 )  %>% ggplot() +geom_line(aes(x = week_since_act, y = pct_app_opens_users, group = as.factor(cohort_num), colour = as.factor(cohort_num)))+ geom_point(aes(x = week_since_act, y = pct_app_opens_users, group = as.factor(cohort_num), colour = as.factor(cohort_num))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,32,2)) + scale_y_continuous(name = "% of cohort", breaks = seq(0,100,10)) + scale_color_discrete(name = "Legend", labels = c(cohort_num_map$month[1:7])) +ggtitle("Monthly Cohorts: % who opened the app atleast once")
+
+##Plotting average app opens per user
+
+cohorted_app_opens_agg %>% select(cohort_num, week_since_act, mean_app_opens) %>% group_by(cohort_num) %>%  dplyr::filter( week_since_act < 25 & cohort_num<8 ) %>% ggplot() +geom_line(aes(x = week_since_act, y = mean_app_opens, group = as.factor(cohort_num), colour = as.factor(cohort_num)))+ geom_point(aes(x = week_since_act, y = mean_app_opens, group = as.factor(cohort_num), colour = as.factor(cohort_num))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,32,2)) + scale_y_continuous(name = "# of App opens per user", breaks = seq(0,15,2)) + scale_color_discrete(name = "Legend", labels = c(cohort_num_map$month[1:7])) +ggtitle("Monthly Cohorts: Mean App Opens per user")
+
+##Plotting median user app opens
+
+cohorted_app_opens_agg %>% select(cohort_num, week_since_act, median_app_opens) %>% group_by(cohort_num) %>%  dplyr::filter( week_since_act < 25 & cohort_num<8 )  %>% ggplot() +geom_line(aes(x = week_since_act, y = median_app_opens, group = as.factor(cohort_num), colour = as.factor(cohort_num)))+ geom_point(aes(x = week_since_act, y = median_app_opens, group = as.factor(cohort_num), colour = as.factor(cohort_num))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,32,2)) + scale_y_continuous(name = "# of App opens by Median User", breaks = seq(0,10,2)) + scale_color_discrete(name = "Legend", labels = c(cohort_num_map$month[1:7])) +ggtitle("Monthly Cohorts:# of App Opens by Median User")
+
+
+```
+
+
+From these plots we can observe the following:  
+
+*  The app usage behavior seems to spike in the first few weeks since activation and then stabilises. Here too we see a prominent drop in the last four weeks for each cohort. By comparing the average and the median values we can confirm that there is some skew within the cohort with some power users pulling the average up. Overall, this confirms most of the inferences from the transaction data.  
+
+*  From both the transactions and app usage plots, there is a suggestion that performance drops from earlier to later cohorts; the December cohort consistently performs better on all plots. This suggests that we should investigate more deeply the reasons behind this trend. As mentioned earlier, it will be worth while examining the acquisition channels and demographics to understand better why earlier monthly cohorts are performing better than latter months. Perhaps its merely due to users becoming more familiar with using Monzo's products and features; we could test this hypotheses by looking at longer time scales for later cohorts.
+
+####  Age Cohorts  
+
+  In this section, I cohort users by age and investigate their usage behavior. First, I plot the distribution of ages from **_monzo_product.users_** to decide the cohort sizes and bins. 
+
+```{r age cohorts , warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+###########################################################################################################################################################################################
+#Cohorting by Age
+
+##Looking at distibution of ages of all users
+
+cohorted_user_data %>% select(user_id, age)%>% dplyr::filter(age<=80) %>% ggplot() + geom_bar(aes(x = age, y = (..count..)*100/sum(..count..)),) + scale_x_continuous(name = "Age", labels = seq(18,90,2), breaks = seq(18,90,2)) + scale_y_continuous(name = "% of users") + ggtitle("Age Distribution of Users")
+
+#Cumulative Distribution of ages
+cohorted_user_data %>% select( user_id, age) %>% dplyr::filter(age<=80) %>% ggplot() + stat_ecdf(aes(age),geom = 'step') + scale_x_continuous(name = "Age", labels = seq(18,80,2), breaks = seq(18,80,2)) + scale_y_continuous(name = "proportion of users", breaks = seq(0,1,0.1)) + ggtitle("Cumulative Distribution of User Ages")
+
+```
+
+
+From these plots we can observe that Monzo's user base is primarily students and young professionals; 50% of the user base is aged below 28 and 80% below 35 and the most common (mode) age of users is 24. The distribution has a long tail with a maximum age of 89 and this skews the average age to 29.87.  
+
+ Based on these, I propose cohorting users in to 5 buckets with a bin size of 4 with the last bucket containing all those aged 35 and above. Below I plot the cohort sizes as per this division.
+
+
+```{r age cohort sizes , warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+###########################################################################################################################################################################################
+#Grouping in to age range of 4 years from 18-34 and >34
+
+age_cohorted_users <- cohorted_user_data %>% dplyr::select(user_id, age) %>% mutate(age_cohort = cut(age, breaks = c(18,23,27,31,35), right = F, ordered_result = T)) 
+
+##Adding an additional level and creating a dataframe of factor levels
+
+age_cohorted_users$age_cohort <- fct_expand(age_cohorted_users$age_cohort, "35=<")
+
+age_levels <-tibble(val = 1:5, labels = as.character(levels(age_cohorted_users$age_cohort)))
+
+age_cohorted_users$age_cohort <- ifelse(is.na(age_cohorted_users$age_cohort), factor("35=<", levels = age_levels$labels ), factor(age_cohorted_users$age_cohort, levels = age_levels$labels))
+
+##Joining by user_id to weekly_agg_cohorted_users_t
+
+age_cohorted_weekly_agg_t <- inner_join(age_cohorted_users,weekly_agg_cohorted_users_t[,-c(2)] )
+
+##Plotting Cohort sizes
+
+age_cohorted_weekly_agg_t %>% dplyr::select(user_id, age_cohort) %>% 
+                          group_by(age_cohort) %>% summarise(num_users = n_distinct(user_id)) %>%  ggplot() +geom_col(aes(x = as.factor(age_cohort), y = num_users, fill =as.factor(age_cohort) )) + scale_x_discrete(name = "Age Cohort", labels = age_levels$labels) +scale_y_continuous(name = "# of Users") + ggtitle("Distribution of Age Cohorts") + scale_fill_discrete(name = "Legend", labels = age_levels$labels)
+
+```
+
+
+From the plot above we can observe that these cohorts are of comparable size, except for the 4th cohort and that is something to keep in mind if we were to notice high variance in aggregated measures of that cohort. These cohorts can also be usefully characterized, 18-22 would be students mostly, 23-26 can be understood as students/young professionals, 27-30 as young professionals, 31-34 as professionals with families possibly, and the final cohort constituting the tail of different ages above 34.
+
+####  Age Cohorts and Transaction Data  
+
+  In this section, I explore the transaction behavior for each age cohort.
+
+
+```{r age cohort sizes and transaction data , warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+###########################################################################################################################################################################################
+##Aggregating by age cohort and week_since_activation
+
+age_cohorted_t_agg <- age_cohorted_weekly_agg_t %>% 
+                                                group_by(age_cohort, week_since_act) %>% mutate(m_users_cohort = n_distinct(ifelse( toMonday(activation_day) <= week,  user_id, NA), na.rm = T)) %>% 
+                                                dplyr::filter(!is.na(week_since_act)) %>% 
+                                                group_by(age_cohort,m_users_cohort, week_since_act ) %>% 
+                                                summarise(pct_t_users = n_distinct(ifelse(m_t>0, user_id, NA), na.rm = T)*100/m_users_cohort,
+                                                          mean_m_t    = mean(ifelse( toMonday(activation_day) <= week,  m_t, NA), na.rm = T),
+                                                          median_m_t  = median(ifelse( toMonday(activation_day) <= week,  m_t, NA), na.rm = T),
+                                                          mean_amount = mean(ifelse( toMonday(activation_day) <= week,  total_daily_amount, NA), na.rm = T),
+                                                          median_amount = median(ifelse( toMonday(activation_day) <= week,  total_daily_amount, NA), na.rm = T)
+                                                ) %>% arrange(age_cohort, week_since_act) %>% ungroup %>%  distinct()
+
+#Plotting Cohort Performance in transacting users
+
+age_cohorted_t_agg %>% select(age_cohort, week_since_act, pct_t_users) %>% group_by(age_cohort) %>% dplyr::filter( week_since_act <=24) %>% ggplot() +geom_line(aes(x = week_since_act, y = pct_t_users, group = as.factor(age_cohort), colour = as.factor(age_cohort)))+ geom_point(aes(x = week_since_act, y = pct_t_users, group = as.factor(age_cohort), colour = as.factor(age_cohort))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,24,2)) + scale_y_continuous(name = "% of cohort", breaks = seq(0,60,5)) + scale_color_discrete(name = "Age Cohorts", labels = c(age_levels$labels)) +ggtitle("Age Cohorts:% Transacting Users")
+
+#Plotting Cohort Performance average number of transactions
+
+age_cohorted_t_agg %>% select(age_cohort, week_since_act,mean_m_t) %>% group_by(age_cohort) %>% dplyr::filter(week_since_act <= 24) %>% ggplot() + geom_line(aes(x = week_since_act, y = mean_m_t, group = as.factor(age_cohort), colour = as.factor(age_cohort)))+geom_point(aes(x = week_since_act, y = mean_m_t, group = as.factor(age_cohort), colour = as.factor(age_cohort))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,24,2)) + scale_y_continuous(name = "# of Transactions per Activated user") + scale_color_discrete(name = "Age Cohorts", labels = c(age_levels$labels)) +ggtitle("Age Cohorts: Mean # of Transactions per Activated Users")
+
+#Plotting to median to check skew
+
+age_cohorted_t_agg %>% select(age_cohort, week_since_act,median_m_t) %>% group_by(age_cohort) %>% dplyr::filter(week_since_act <=24) %>% ggplot() + geom_line(aes(x = week_since_act, y = median_m_t, group = as.factor(age_cohort), colour = as.factor(age_cohort)))+geom_point(aes(x = week_since_act, y = median_m_t, group = as.factor(age_cohort), colour = as.factor(age_cohort))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,24,2)) + scale_y_continuous(name = "# of Transactions per Activated user") + scale_color_discrete(name = "Age Cohorts", labels = c(age_levels$labels)) +ggtitle("Age Cohorts:# Transaction of Median Activated User")
+
+######################################################################################################################################################################################################
+##Transacation amount
+
+#Plotting Cohort Performance average amount
+
+age_cohorted_t_agg %>% select(age_cohort, week_since_act,mean_amount) %>% group_by(age_cohort) %>% dplyr::filter(week_since_act <= 24) %>% ggplot() + geom_line(aes(x = week_since_act, y = mean_amount, group = as.factor(age_cohort), colour = as.factor(age_cohort)))+geom_point(aes(x = week_since_act, y = mean_amount, group = as.factor(age_cohort), colour = as.factor(age_cohort))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,24,2)) + scale_y_continuous(name = "Mean Amount per Activated User") + scale_color_discrete(name = "Age Cohorts", labels = c(age_levels$labels)) +ggtitle("Age Cohorts: Mean Amount per Activated Users")
+
+#Plotting to median to check skew
+
+age_cohorted_t_agg %>% select(age_cohort, week_since_act,median_amount) %>% group_by(age_cohort) %>% dplyr::filter(week_since_act <=24) %>% ggplot() + geom_line(aes(x = week_since_act, y = median_amount, group = as.factor(age_cohort), colour = as.factor(age_cohort)))+geom_point(aes(x = week_since_act, y = median_amount, group = as.factor(age_cohort), colour = as.factor(age_cohort))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,24,2)) + scale_y_continuous(name = "Amount for Median Actiavted User") + scale_color_discrete(name = "Age Cohorts", labels = c(age_levels$labels)) +ggtitle("Age Cohorts:Amount for Median Activated Users")
+
+
+
+```
+
+
+Form these plots we can observe the following:  
+
+*  Cohort performance remains mostly stable in the first 24 weeks for all cohorts (except for a spike for the 35=< in average transaction amount). The largest cohort, [23 -27), seems to be the best performing cohort on all measures (although their mean transaction amount is lower than older cohorts, the median amount still ranks on top). This is a good sign since this cohort constitutes a plurality of users. This would suggest that Monzo is working well for its largest and (possibly) target user base.  
+
+*  The worst performing cohort seems to be those aged 35 and above. It is worth noting that this is a heterogeneous cohort and we must be careful about generalising. For example we can observe from the average and median plots that there is significant skew within the cohort with some users, probably younger ones, pushing up the average. Nonetheless, it indicates that these older users don't find as much utility as younger users in transacting using Monzo, probably because they are still using the services of legacy banks. This might also point to an opportunity to better understand their needs and tailor products and features to their needs.  
+
+####  Age Cohorts and App Opens
+
+  In this section, I explore the frequency of app usage for each age cohort using similar plots.
+  
+
+```{r age cohort sizes and app opens , warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+###########################################################################################################################################################################################
+######################################################################################################################################################################################################
+######################################################################################################################################################################################################
+##Age cohort App opens
+##Joining by user_id to weekly_agg_cohorted_users_t
+
+age_cohorted_weekly_agg_app_opens <- inner_join(age_cohorted_users,weekly_agg_cohorted_users_app_opens[,-c(2)] )
+
+##Aggregating by age cohort and week_since_activation
+
+age_cohorted_app_opens_agg <- age_cohorted_weekly_agg_app_opens %>% 
+  group_by(age_cohort, week_since_act) %>% mutate(m_users_cohort = n_distinct(ifelse( toMonday(activation_day) <= week,  user_id, NA), na.rm = T)) %>% 
+  dplyr::filter(!is.na(week_since_act)) %>% 
+  group_by(age_cohort,m_users_cohort, week_since_act ) %>% 
+  summarise(pct_app_opens_users = n_distinct(ifelse(m_app_opens>0, user_id, NA), na.rm = T)*100/m_users_cohort,
+            mean_m_app_opens    = mean(ifelse( toMonday(activation_day) <= week,  m_app_opens, NA), na.rm = T),
+            median_m_app_opens  = median(ifelse( toMonday(activation_day) <= week,  m_app_opens, NA), na.rm = T),
+  ) %>% arrange(age_cohort, week_since_act) %>% ungroup %>%  distinct()
+
+
+#Plotting Cohort Performance in app opens users
+
+age_cohorted_app_opens_agg %>% select(age_cohort, week_since_act, pct_app_opens_users) %>% group_by(age_cohort) %>% dplyr::filter( week_since_act <=24) %>% ggplot() +geom_line(aes(x = week_since_act, y = pct_app_opens_users, group = as.factor(age_cohort), colour = as.factor(age_cohort)))+ geom_point(aes(x = week_since_act, y = pct_app_opens_users, group = as.factor(age_cohort), colour = as.factor(age_cohort))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,24,2)) + scale_y_continuous(name = "% of cohort", breaks = seq(0,100,10)) + scale_color_discrete(name = "Age Cohorts", labels = c(age_levels$labels)) +ggtitle("Age Cohorts:% Activated user who opened the app")
+
+#Plotting Cohort Performance average number of transactions
+
+age_cohorted_app_opens_agg %>% select(age_cohort, week_since_act,mean_m_app_opens) %>% group_by(age_cohort) %>% dplyr::filter(week_since_act <= 24) %>% ggplot() + geom_line(aes(x = week_since_act, y = mean_m_app_opens, group = as.factor(age_cohort), colour = as.factor(age_cohort)))+geom_point(aes(x = week_since_act, y = mean_m_app_opens, group = as.factor(age_cohort), colour = as.factor(age_cohort))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,24,2)) + scale_y_continuous(name = "# app opens per Activated user") + scale_color_discrete(name = "Age Cohorts", labels = c(age_levels$labels)) +ggtitle("Age Cohorts: Mean # of app opens per Activated Users")
+
+#Plotting to median to check skew
+
+age_cohorted_app_opens_agg %>% select(age_cohort, week_since_act,median_m_app_opens) %>% group_by(age_cohort) %>% dplyr::filter(week_since_act <=24) %>% ggplot() + geom_line(aes(x = week_since_act, y = median_m_app_opens, group = as.factor(age_cohort), colour = as.factor(age_cohort)))+geom_point(aes(x = week_since_act, y = median_m_app_opens, group = as.factor(age_cohort), colour = as.factor(age_cohort))) +scale_x_continuous(name = "Week since activation", breaks = seq(0,24,2)) + scale_y_continuous(name = "# of app opens") + scale_color_discrete(name = "Age Cohorts", labels = c(age_levels$labels)) +ggtitle("Age Cohorts:# app opens of Median Activated User")
+
+
+```
+
+
+From the plots above we can observe the following:  
+
+*  The trends reflect what we saw with the transactions data. There is marked difference between the 35>= cohort and the other cohorts with the latter lagging behind on most measures. In terms of app usage, the youngest cohort seems to be doing better than their performance with transactions. This can be explained by the fact that they have lesser disposable income compared to older cohorts. Save for the oldest cohort, between 60% and 70% of the users in each cohort seem to be using the app on a weekly basis. This is a good sign that the app is well designed and working well for them.   
+
+
+*  Once again, it might be worth investigating why the oldest cohort seems to be lagging behind the others. Perhaps this is because they have not fully understood the variety of features and/or the mechanics of using the app. Since this segment of users are usually wealthier, they may prove to be valuable customers for Monzo and we should consider investing in making it easier for them to use the app.  
+
+*  The difference between mean and median suggests that there is some skew in all the cohorts with some power users pulling the average up. It could be valuable to understand what is the cause of this skew through qualitative interviews and granular analyses of the data. This could give us valuable insights that could help improve the app to bridge the gap.
+
+###  Conclusions
+
+  In this answer, I have demonstrated how cohort analysis can help us analyse with more granularity the difference in user behavior on Monzo. I have illustrated frameworks for cohort analysis by cohorting users by month of activation and age. I have analysed the performance of these cohorts on the basis of key actions on the platform and provided interpretations and recommendations. With these frameworks coded up, we can quickly identify under performing user segments and by considering both mean and median ensure that our conclusions are robust to skew. Another important cohort type that is out of scope of this analysis is user acquisition channels. We can use the same frameworks as the ones I demonstrated to understand better what type of acquisition channels provide the most valuable users.
+  
+##  Question 3: What are the segments of our customers that retain better than others. Can we learn anything useful for our product strategy from it?  
+
+ In the last section, we already learned that customers in the age range [23 - 27) perform better on most retention metrics; users aged above 34 perform the worst. In the last section I also proposed some steps we can take to better understand the reasons behind this trend.  
+ 
+ In this section, I will segment users by the features associated with them in the table **_monzo_product.users_** to see if there are any differences. I will first explore each feature individually and its association with retention metrics. In order to make these metrics comparable across users with different activation dates, I scale them for each user by the number of weeks they have been active on Monzo (excluding the last partially completed week of June). Finally I use linear regression modeling to check if there are any combined effects of these features on retention metrics. 
+ 
+###  Friends on Monzo
+
+  This field has significant data quality issues. For 23% of users the table has a NULL value, 37.73% have negative values, 6% have zero value, and the remaining 33% have non-zero and non-negative values. I deal with this by assuming zero friends wherever the value is NULL or negative.   
+  
+  We might hypothesise that user with more friends on Monzo use the app more since making payments to friends easily is a unique feature of Monzo. To test this hypothesis, I check the association between having zero friends and non-zero friends on retention metrics as well as the pearson correlation coefficients between having more friends and retention metrics, while excluding all user with zero friends. 
+  
+
+```{r friends on monzo , warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+############################################################################################################################################################################################################################################################################################################################################################################################################
+##Number of weeks on Monzo
+
+weeks_on_monzo <- weekly_agg_cohorted_users_t %>% group_by(user_id) %>% summarise(weeks_on_monzo = max(week_since_act) - 1)
+
+
+
+##Formatting to change NAs and negative values to 0
+
+cohorted_user_data$friends_on_monzo <- dplyr::if_else(is.na(cohorted_user_data$friends_on_monzo)| cohorted_user_data$friends_on_monzo<0,0,cohorted_user_data$friends_on_monzo)
+
+
+
+##Distribution of users with friends on monzo
+
+cohorted_user_data %>% dplyr::filter(friends_on_monzo>0 & friends_on_monzo<=100) %>%   ggplot() + geom_bar(aes(friends_on_monzo, ..count..*100/sum(..count..) ) ) + scale_x_continuous(name = 'Friends on Monzo', labels = seq(0,100,10), breaks = seq(0,100,10)) + scale_y_continuous(name = "%") +ggtitle("Distribution of Users with at least one friend on Monzo")
+
+###Creating a single dataframe with all relevant parameters
+
+query_1 <- "SELECT DISTINCT  *
+              FROM
+                cohorted_user_data AS u
+                INNER JOIN weeks_on_monzo AS w
+                  ON w.user_id = u.user_id
+                INNER JOIN users_t AS t
+                  ON t.user_id = u.user_id
+                INNER JOIN users_app_opens AS a
+                  ON a.user_id = u.user_id"
+
+model_users <- sqldf(query_1) 
+
+model_users <- model_users[,-c(8,9,11,14)]
+
+##Cleaning the data frame to get ready to model
+
+model_users_clean <- model_users %>% filter(weeks_on_monzo>0) %>%  transmute(user_id = user_id,
+                                                                             friends_on_monzo = friends_on_monzo,
+                                                                             age = age,
+                                                                             od = if_else(is.na(od), 0, od),
+                                                                             photo_ul = if_else(is.na(photo_ul_day), 0,1),
+                                                                             apay     = if_else(is.na(apay_act_day),0,1),
+                                                                             activation_day = activation_day,
+                                                                             weeks_on_monzo = weeks_on_monzo,
+                                                                             mean_week_m_t = m_t/weeks_on_monzo,
+                                                                             mean_week_amount = total_amount/weeks_on_monzo,
+                                                                             mean_week_app_opens = m_app_opens/weeks_on_monzo
+                                                                             )
+
+
+###Investigating friends on monzo further by comparing the correlation between those with at least one friend and outcomes metrics
+##Box plots for categorical variables
+
+variable_names <- list(
+  "mean_week_m_t" = "Weekly Average # Transactions per User" ,
+  "mean_week_amount"   = "Weekly Average Trasnsacted Amount per User" ,
+  "mean_week_app_opens" = "Weekly Average App Opens per User"
+)
+
+
+variable_labeller <- function(variable,value){
+  return(variable_names[value])
+}
+
+
+#Friends on Monzo
+
+model_users_clean %>% dplyr::filter(weeks_on_monzo>4& mean_week_m_t < 500 & mean_week_amount <1000 & mean_week_app_opens < 500 ) %>% 
+  select(friends_on_monzo, mean_week_m_t, mean_week_amount,mean_week_app_opens) %>% 
+  mutate( f= as.factor(if_else(friends_on_monzo>0,1,0))) %>%
+  dplyr::select(-friends_on_monzo,) %>% 
+  melt(id.vars = "f") %>% ggplot() + geom_boxplot(aes(x = f, y = value), notch = T, outlier.colour = "red") + facet_wrap(~variable, ncol = 1, labeller= variable_labeller, scales = 'free') + scale_x_discrete(name = "Friends on Monzo", labels = c("No", "Yes")) +ggtitle("Does having atleast one friend on Monzo increase usage?")
+
+
+
+##Friends on monzo and mean weekly transactions
+
+model_users_clean %>% dplyr::select(friends_on_monzo, mean_week_m_t, weeks_on_monzo) %>% dplyr::filter(friends_on_monzo>0 & weeks_on_monzo>10) %>% cor()
+
+model_users_clean %>%dplyr::select(friends_on_monzo, mean_week_m_t, weeks_on_monzo) %>% dplyr::filter(friends_on_monzo>0 & weeks_on_monzo>10) %>% ggplot() + geom_point(aes(friends_on_monzo, mean_week_m_t)) + ggtitle(" Friends on Monzo vs Mean # of Transactions per Active Week")
+
+##Friends on monzo and mean week amount
+
+model_users_clean %>% dplyr::select(friends_on_monzo, mean_week_amount) %>% dplyr::filter(friends_on_monzo>0) %>% cor()
+
+model_users_clean %>% dplyr::select(friends_on_monzo, mean_week_amount, weeks_on_monzo) %>% dplyr::filter(friends_on_monzo>0 & weeks_on_monzo>10) %>% ggplot() + geom_point(aes(friends_on_monzo, mean_week_amount)) + ggtitle(" Friends on Monzo vs Mean Transaction Amount per Active Week")
+
+##Friends on monzo and mean week app opens
+
+model_users_clean %>% dplyr::select(friends_on_monzo, mean_week_app_opens) %>% dplyr::filter(friends_on_monzo>0) %>% cor()
+
+model_users_clean %>% dplyr::select(friends_on_monzo, mean_week_app_opens, weeks_on_monzo) %>% dplyr::filter(friends_on_monzo>0 & weeks_on_monzo>10) %>% ggplot() + geom_point(aes(friends_on_monzo, mean_week_app_opens)) + ggtitle(" Friends on Monzo vs Mean App Opens per Active Week")
+
+##There seems to be no significant correlations between monzo usage metrics and friends on monzo
+
+```
+
+
+  It is evident from the above plots that having friends on Monzo is not associated with any meaningful difference in performance on retention metrics. It is once again worth noting that this maybe due to a data quality issue mentioned earlier; there is really not enough data of users with recorded friends on Monzo in the data set. 
+  
+### Overdraft Facility
+
+  I assume this as a categorical variable taking value 1 for a user offered overdraft and 0 for those not offered. 18.5% of the users have NULL value, which I change to zero. We might expect that users with this facility use Monzo more since they have greater spending power. Below I create boxplots to test the association between this variable and retention metrics to test this hypothesis. 
+ 
+```{r od, warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+##Overdraft facility
+
+model_users_clean %>% dplyr::filter(weeks_on_monzo>4& mean_week_m_t < 500 & mean_week_amount <1000 & mean_week_app_opens < 500 ) %>% 
+  select(od, mean_week_m_t, mean_week_amount,mean_week_app_opens) %>% 
+  mutate( f= as.factor(if_else(od>0,1,0))) %>%
+  dplyr::select(-od,) %>% 
+  melt(id.vars = "f") %>% ggplot() + geom_boxplot(aes(x = f, y = value), notch = T, outlier.colour = "red") + facet_wrap(~variable, ncol = 1, labeller= variable_labeller, scales = 'free') + scale_x_discrete(name = "Overdraft Facility", labels = c("No", "Yes")) +ggtitle("Does having Overdraft facility on Monzo increase usage?")
+
+
+```
+
+
+  There seems to be no statistically significant difference in retention metrics for those offered overdraft and those who were not. 
+  
+
+###  Android Pay Activated
+
+  This feature is in the date format and I assume indicates the date when the user activated Android pay. Barely 4% of users have activated this feature.
+  
+  We could hypothesise that a user who has activated this feature might transact more/ use the app more, both compared to users without this feature as well as their own usage before. To test the association with retention metrics, I consider both between user with this feature activated and not as well as a before and after within users. In the former case, I compare the performance on retention metrics for users with this feature activated and those without; for the latter I compare retention metrics before and after the feature was activated only for those users who activated this feature. I produce box plots to test these.
+  
+
+```{r apay, warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+##Overdraft facility
+
+##Apple/Android Pay Activated
+
+model_users_clean %>% dplyr::filter(weeks_on_monzo>4& mean_week_m_t < 500 & mean_week_amount <1000 & mean_week_app_opens < 500 ) %>% 
+  select(apay, mean_week_m_t, mean_week_amount,mean_week_app_opens) %>% 
+  mutate( f= as.factor(if_else(apay>0,1,0))) %>%
+  dplyr::select(-apay,) %>% 
+  melt(id.vars = "f") %>% ggplot() + geom_boxplot(aes(x = f, y = value), notch = T, outlier.colour = "red") + facet_wrap(~variable, ncol = 1, labeller= variable_labeller, scales = 'free') + scale_x_discrete(name = "Andoird/Apple Pay  Activated", labels = c("No", "Yes")) +ggtitle("Does having Apple/Android Pay on Monzo increase usage?")
+
+##Does user behavior changes before and after photo  apay activation ?
+
+cohorted_user_data %>% 
+dplyr::filter(!is.na(apay_act_day)) %>% mutate(apay_act_week = toMonday(apay_act_day)) %>% 
+dplyr::select(user_id, apay_act_week) %>% 
+inner_join(weekly_agg_cohorted_users_t[,c(1,4,5,6)], by = 'user_id') %>% 
+inner_join(weekly_agg_cohorted_users_app_opens[,c(1,4,5)], by = c('user_id' = 'user_id', 'week' = 'week')) %>% 
+group_by(user_id, week) %>% 
+mutate(apay_act = if_else(week >= apay_act_week, 1 , 0))%>% 
+group_by(user_id, apay_act) %>% 
+summarise(across(where(is.numeric), mean)) %>% ungroup() %>% 
+dplyr::select(-user_id) %>% 
+mutate( f= as.factor(if_else(apay_act>0,1,0))) %>%
+dplyr::select(-apay_act,) %>% 
+melt(id.vars = "f") %>% ggplot() + geom_boxplot(aes(x = f, y = value), notch = T, outlier.colour = "red") + facet_wrap(~variable, ncol = 1, labeller= variable_labeller, scales = 'free') + scale_x_discrete(name = "Andoird/Apple Pay  Activated", labels = c("Before", "After")) +ggtitle("Does activating Apple/Android Pay increase user activity on Monzo?")
+
+```
+
+
+  There seems to be no statistically significant difference in retention metrics for those with this feature and those without; there is also no statistically significant change before and after this feature was activated. It could be interesting to check if this holds for users who have activated Apple pay.
+
+### Profile Photo Upload
+
+  This is a date variable that encodes the date when a user uploaded profile photo to his account. Only 14.75% of users opted to upload a photo.  
+  
+  We could hypothesise that these users like the platform and wish to be identifiable since they plan on using it more. Like previously, I test both between user and within user (before/after). I test this below by plotting boxplots.
+  
+  
+```{r photo_ul, warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+
+##Photo uploaded
+
+model_users_clean %>% dplyr::filter(weeks_on_monzo>4& mean_week_m_t < 500 & mean_week_amount <1000 & mean_week_app_opens < 500 ) %>% 
+  select(photo_ul, mean_week_m_t, mean_week_amount,mean_week_app_opens) %>% 
+  mutate( f= as.factor(if_else(photo_ul>0,1,0))) %>%
+  dplyr::select(-photo_ul,) %>% 
+  melt(id.vars = "f") %>% ggplot() + geom_boxplot(aes(x = f, y = value), notch = T, outlier.colour = "red") + facet_wrap(~variable, ncol = 1, labeller= variable_labeller, scales = 'free') + scale_x_discrete(name = "Profile Picture Uploaded", labels = c("No", "Yes")) +ggtitle("Do users who upload a profile picture retain better?")
+
+
+### Photo upload
+
+
+cohorted_user_data %>% 
+  dplyr::filter(!is.na(photo_ul_day)) %>% mutate(photo_ul_week = toMonday(photo_ul_day)) %>% 
+  dplyr::select(user_id, photo_ul_week) %>% 
+  inner_join(weekly_agg_cohorted_users_t[,c(1,4,5,6)], by = 'user_id') %>% 
+  inner_join(weekly_agg_cohorted_users_app_opens[,c(1,4,5)], by = c('user_id' = 'user_id', 'week' = 'week')) %>% 
+  group_by(user_id, week) %>% 
+  mutate(photo_ul_act = if_else(week >= photo_ul_week, 1 , 0))%>% 
+  group_by(user_id, photo_ul_act) %>% 
+  summarise(across(where(is.numeric), mean)) %>% ungroup() %>% 
+  dplyr::select(-user_id) %>% 
+  mutate( f= as.factor(if_else(photo_ul_act>0,1,0))) %>%
+  dplyr::select(-photo_ul_act,) %>% 
+  melt(id.vars = "f") %>% ggplot() + geom_boxplot(aes(x = f, y = value), notch = T, outlier.colour = "red") + facet_wrap(~variable, ncol = 1, labeller= variable_labeller, scales = 'free') + scale_x_discrete(name = "Photo Uploaded", labels = c("Before", "After")) +ggtitle("Does photo upload increase user activity on Monzo?")
+
+
+```
+
+There seems to be no statistically significant difference in retention metrics for those with this feature and those without; there is also no statistically significant change before and after this feature was activated.
+
+### Regression Analysis to check association between retention metrics and all these features together
+
+  In this final section, I check whether there is any association with all these features taken together as the independent variables and retention metrics as the dependent variables. Since we found no association when we considered each feature independently, it is unlikely that we will find strong associations in this modeling exercise. Nonetheless, to illustrate its usage I build these models below and report the regression estimates. 
+  
+
+```{r reg analysis, warning=FALSE, echo= FALSE, message=F, cache=T, fig.width= 12, fig.height= 6}
+##Model for mean weekly transactions
+
+model_users_clean %>% dplyr::select(age, friends_on_monzo, od, photo_ul, apay, weeks_on_monzo, mean_week_m_t) %>% 
+  dplyr::filter(weeks_on_monzo>4& mean_week_m_t < 500 ) %>% dplyr::select(-weeks_on_monzo) %>% 
+  lm(formula = mean_week_m_t~.) %>% jtools::summ()
+
+##Model for mean weekly transacted amount
+
+model_users_clean %>% dplyr::select(age, friends_on_monzo, od, photo_ul, apay, weeks_on_monzo, mean_week_amount) %>% 
+  dplyr::filter(weeks_on_monzo>4& mean_week_amount < 1000 ) %>% dplyr::select(-weeks_on_monzo) %>% 
+  lm(formula = mean_week_amount~.) %>% jtools::summ()
+
+##MOdel for mean weekly app opens
+
+model_users_clean %>% dplyr::select(age, friends_on_monzo, od, photo_ul, apay, weeks_on_monzo, mean_week_app_opens) %>% 
+  dplyr::filter(weeks_on_monzo>4& mean_week_app_opens < 500 ) %>% dplyr::select(-weeks_on_monzo) %>% 
+  lm(formula = mean_week_app_opens~.) %>% jtools::summ()
+
+
+#####################################################################################################
+
+```
+
+
+From these regression tables we can infer the following:  
+
+*  Although the p-values for most of the estimates are below significance level (0.05), the R^2^ and adjusted R^2^ for all three models are really low. The latter (multiplied by 100) maybe interpreted as what percentage of the variance in the dependent variable was explained by the model. For all three models this value is below 10, which indicates that they cannot explain most of the variation in the outcome variable. This is also why the regression estimates for most of the independent variable are low or close to zero. This is why the intercept term has the largest coefficient estimate in all three models. The p-values being below significance tells us that we are fairly certain that the estimates are not zero, even if very small. 
+
+*  With that caveat in mind, it is still worth analysing and interpreting the results. The two variables that have the largest regression estimates are profile photo upload and android pay activation. Although its not straight forward to compare the estimates for these categorical variables with those of continuous variables, this does seem to indicate that there is a positive effect on these features being activated and all three retention metrics. Perhaps we did not see a strong association when we considered them individually due to the imbalanced samples (very few users had these features activated). So it is worth collecting more data and investigating this further.
+
+### Conclusion
+  
+  In this answer, I explored the associations between all the user feature variables and their association with retention metrics. When these were considered individually there was no statistically significant association between them and performance on retention metrics. On the other hand, the regression model, with caveats, suggests that there is a positive association for Android pay activation and profile Photo upload with performance on all three retention metrics. This requires further investigation before we can be certain. 
+
+
+##  Question 4: Are Monzo customers retained better over time?  
+
+The short answer to this question is a qualified yes. From the data made available to me, which were the first few months of the product being launched, user retention seems to be steadily increasing on all three metrics I had proposed. I detail below the qualifications to this answer:  
+
+*  The first qualification is that evaluating retention requires us to pick an appropriate time frame. For example daily retention of app opening users is low, but weekly and monthly retention is high. Given Monzo is not a social media or a gaming company, it is unreasonable to expect users to open the app daily. So in terms of weekly app opens, retained users are the largest contributors to weekly active users and the overall number of retained users seems to be following an increasing trend (refer plot in Q1). In terms of transacting users, retained users are the largest contributors over daily, weekly, and monthly time frames and their overall number seems to be trending upwards. Further, the transactions per user as well as the average transacted amount per user are both increasing with time. All these suggests that Monzo customers are retained better over time.
+
+*  Having said that, during cohort analysis we noticed a significant fall in retention metrics in the last few weeks. It is unclear if this is an acute problem due to some technical issue or external shock or if it is part of a longer term trend in decreased user retention. My hunch is that it is the former, not the latter. Nonetheless, this is one more reason to be prudent in monitoring retention metrics frequently.  
+
+* Another important qualification is that not all users are retained equally. By analysing age cohorts, I have shown that users 35 and above seem to be performing poorly compared to other age cohorts. This maybe because of the heterogeneity in this cohort or that Monzo is really not designed be used frequently by them. Nonetheless, it is an important caveat to be noted to the overall conclusion that retention is high and trending upwards. I would also recommend further analyses based on acquisition channels to identify the source of users that are retained better versus those that are not.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  
+  
+  
+
+
+  
+  
+
+  
+  
+  
+  
