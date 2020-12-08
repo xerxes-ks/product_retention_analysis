@@ -1,4 +1,4 @@
-# Frameworks to Analyze Product Retention
+# product_retention_analysis
 
 Statistical frameworks and visualizations to analyse user retention at a product based tech company
 
